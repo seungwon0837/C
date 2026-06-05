@@ -1,5 +1,6 @@
 # 컴파일 산출물
 *.o
+*.obj
 *.out
+*.exe
 password_validation
-pw_asan

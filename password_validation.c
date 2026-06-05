@@ -16,19 +16,15 @@
  *    - 전역변수 사용 금지, goto문 사용 금지
  *    - 유효성 검사 함수 원형: int verification_pw(char pw[], int size);
  *
- *  Windows(_WIN32)와 POSIX(Linux/macOS) 양쪽에서 '*' 마스킹 입력이 동작하도록
- *  플랫폼별 처리를 분리하였다.
+ *  대상 환경: Windows (Visual Studio).
+ *  '*' 마스킹은 conio.h의 _getch()로 처리한다. 표준 C 라이브러리에는 입력
+ *  에코를 끄고 한 글자를 읽는 기능이 없어, 이 부분만 _getch()를 사용한다.
  */
 
 #include <stdio.h>
+#include <stdbool.h>
 #include <ctype.h>
-
-#ifdef _WIN32
-#include <conio.h>          /* _getch() */
-#else
-#include <termios.h>        /* tcgetattr / tcsetattr */
-#include <unistd.h>         /* STDIN_FILENO */
-#endif
+#include <conio.h>          /* _getch() : 에코 없이 한 글자 입력 */
 
 /* ---- 상수 정의 (전역변수가 아닌 매크로/열거형으로 처리) -------------------- */
 
@@ -60,18 +56,18 @@ enum pw_result {
 
 int verification_pw(char pw[], int size);                 /* 과제 지정 원형 */
 
-static int  is_special_char(int ch);
-static int  has_ascending_or_descending_run(const char pw[], int size);
+static bool        is_special_char(int ch);
+static bool        has_ascending_or_descending_run(const char pw[], int size);
 static const char *result_reason(int code);
-static int  read_password(char buf[], int cap);
-static int  ask_continue(void);
+static int         read_password(char buf[], int cap);
+static bool        ask_continue(void);
 
 /* ---- 유효성 검사 (핵심 로직) ---------------------------------------------- */
 
 /*
  * 허용되는 특수문자(!, @, #, $) 여부를 판정한다.
  */
-static int is_special_char(int ch)
+static bool is_special_char(int ch)
 {
     return (ch == '!' || ch == '@' || ch == '#' || ch == '$');
 }
@@ -79,9 +75,9 @@ static int is_special_char(int ch)
 /*
  * 3자리 이상의 오름차순 또는 내림차순 연속 문자열이 있는지 검사한다.
  * 연속의 기준은 ASCII 코드값의 차이가 1인 경우이다. (예: "abc", "789", "321")
- * 하나라도 발견되면 1, 없으면 0을 반환한다.
+ * 하나라도 발견되면 true, 없으면 false를 반환한다.
  */
-static int has_ascending_or_descending_run(const char pw[], int size)
+static bool has_ascending_or_descending_run(const char pw[], int size)
 {
     int i;
 
@@ -91,11 +87,11 @@ static int has_ascending_or_descending_run(const char pw[], int size)
         int c = (unsigned char)pw[i + 2];
 
         if (b - a == 1 && c - b == 1)   /* 오름차순 (예: a,b,c) */
-            return 1;
+            return true;
         if (a - b == 1 && b - c == 1)   /* 내림차순 (예: c,b,a) */
-            return 1;
+            return true;
     }
-    return 0;
+    return false;
 }
 
 /*
@@ -106,8 +102,8 @@ static int has_ascending_or_descending_run(const char pw[], int size)
  */
 int verification_pw(char pw[], int size)
 {
-    int i;
-    int has_lower = 0, has_upper = 0, has_digit = 0, has_special = 0;
+    int  i;
+    bool has_lower = false, has_upper = false, has_digit = false, has_special = false;
 
     if (pw == NULL)                 /* 방어적 처리 */
         return PW_ERR_NULL;
@@ -123,13 +119,13 @@ int verification_pw(char pw[], int size)
         unsigned char ch = (unsigned char)pw[i];
 
         if (islower(ch))
-            has_lower = 1;
+            has_lower = true;
         else if (isupper(ch))
-            has_upper = 1;
+            has_upper = true;
         else if (isdigit(ch))
-            has_digit = 1;
+            has_digit = true;
         else if (is_special_char(ch))
-            has_special = 1;
+            has_special = true;
         else
             return PW_ERR_BAD_CHAR;     /* 허용되지 않는 문자 */
     }
@@ -174,47 +170,22 @@ static const char *result_reason(int code)
 
 /*
  * 패스워드를 한 글자씩 입력받아 화면에는 '*'로 마스킹하여 출력한다.
+ * _getch()는 입력 문자를 에코 없이 즉시 읽어오므로 직접 '*'를 출력한다.
  * 백스페이스(지우기)도 지원한다.
  *   buf : 입력을 저장할 버퍼
  *   cap : 버퍼 용량(널 문자 포함)
- *   반환: 입력된 문자열의 길이. 입력 없이 EOF를 만나면 -1.
- *
- * 터미널 제어가 불가능한 환경(예: 파이프 입력)에서는 마스킹 설정 없이도
- * 동작하도록 방어적으로 처리한다.
+ *   반환: 입력된 문자열의 길이.
  */
 static int read_password(char buf[], int cap)
 {
     int len = 0;
     int ch;
 
-#ifndef _WIN32
-    struct termios old_term, new_term;
-    int raw_mode = 0;
-
-    /* 표준입력의 에코/정규 모드를 잠시 해제하여 직접 마스킹한다. */
-    if (tcgetattr(STDIN_FILENO, &old_term) == 0) {
-        new_term = old_term;
-        new_term.c_lflag &= ~(tcflag_t)(ICANON | ECHO);
-        if (tcsetattr(STDIN_FILENO, TCSANOW, &new_term) == 0)
-            raw_mode = 1;
-    }
-#endif
-
-    for (;;) {
-#ifdef _WIN32
-        ch = _getch();
-        if (ch == '\r' || ch == '\n')           /* Enter */
-            break;
-#else
-        ch = getchar();
-        if (ch == '\n' || ch == '\r' || ch == EOF)
-            break;
-#endif
-        if (ch == '\b' || ch == 127) {          /* Backspace / Delete */
+    while ((ch = _getch()) != '\r' && ch != '\n' && ch != EOF) {
+        if (ch == '\b') {                       /* Backspace */
             if (len > 0) {
                 len--;
                 fputs("\b \b", stdout);         /* 화면의 '*' 한 칸 지우기 */
-                fflush(stdout);
             }
             continue;
         }
@@ -222,36 +193,26 @@ static int read_password(char buf[], int cap)
         if (len < cap - 1) {                     /* 버퍼 한도 내에서만 저장 */
             buf[len++] = (char)ch;
             putchar('*');
-            fflush(stdout);
         }
-        /* 한도를 넘는 입력은 무시(소비)하여 오버플로우를 방지한다. */
+        /* 한도를 넘는 입력은 무시하여 오버플로우를 방지한다. */
     }
 
     buf[len] = '\0';
-
-#ifndef _WIN32
-    if (raw_mode)
-        tcsetattr(STDIN_FILENO, TCSANOW, &old_term);  /* 터미널 모드 복원 */
-    if (ch == EOF && len == 0)
-        return -1;
-#endif
-
     putchar('\n');
     return len;
 }
 
 /*
  * "계속<y/n>"을 묻고 사용자의 선택을 받는다.
- *   반환: 계속하면 1, 종료하면 0.
+ *   반환: 계속하면 true, 종료하면 false.
  * 'y'/'n'(대소문자 무관) 외의 값이 들어오면 다시 묻는다(방어적 처리).
  */
-static int ask_continue(void)
+static bool ask_continue(void)
 {
-    for (;;) {
-        int ch, rest;
+    int ch, rest;
 
+    for (;;) {
         printf("   계속<y/n> : ");
-        fflush(stdout);
 
         /* 앞쪽 공백/개행은 건너뛰고 첫 의미 있는 문자를 읽는다. */
         do {
@@ -259,7 +220,7 @@ static int ask_continue(void)
         } while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r');
 
         if (ch == EOF)
-            return 0;
+            return false;
 
         /* 입력 줄의 나머지 문자를 비운다. */
         rest = ch;
@@ -267,9 +228,9 @@ static int ask_continue(void)
             rest = getchar();
 
         if (ch == 'n' || ch == 'N')
-            return 0;
+            return false;
         if (ch == 'y' || ch == 'Y')
-            return 1;
+            return true;
 
         printf("   'y' 또는 'n'으로 입력해 주세요.\n");
     }
@@ -280,25 +241,19 @@ static int ask_continue(void)
 int main(void)
 {
     char pw[PW_BUF_SIZE];
-    int count = 0;          /* 총 검사 횟수 */
-    int valid_count = 0;    /* 유효 판정 횟수 */
-    int len, result;
+    int  count = 0;          /* 총 검사 횟수 */
+    int  valid_count = 0;    /* 유효 판정 횟수 */
+    int  len, result;
 
     printf("[ 패스워드 유효성 검사 ]\n\n");
 
     for (;;) {
         count++;
         printf("%d. 검사할 패스워드를 입력하시오 : ", count);
-        fflush(stdout);
 
         len = read_password(pw, PW_BUF_SIZE);
-        if (len < 0) {                  /* 입력 없이 EOF: 검사 취소 후 종료 */
-            count--;
-            putchar('\n');
-            break;
-        }
-
         result = verification_pw(pw, len);
+
         if (result == PW_VALID) {
             valid_count++;
             printf("   입력한 \"%s\"은 유효한 암호입니다.\n", pw);
