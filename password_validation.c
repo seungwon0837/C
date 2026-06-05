@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <string.h>         /* strchr() */
 #include <conio.h>          /* _getch() : 에코 없이 한 글자 입력 */
 
 /* ---- 상수 정의 (전역변수가 아닌 매크로/열거형으로 처리) -------------------- */
@@ -69,18 +70,12 @@ static bool        ask_continue(void);
 
 /*
  * 허용되는 특수문자 여부를 판정한다.
- * 검사 대상 특수문자는 PW_SPECIAL_CHARS 배열을 순회하며 비교한다.
+ * 허용 집합(PW_SPECIAL_CHARS)에 ch가 포함되는지 strchr로 검사한다.
+ * strchr는 널 종료문자도 '찾았다'고 반환하므로 ch == '\0'은 먼저 걸러낸다.
  */
 static bool is_special_char(int ch)
 {
-    const char specials[] = PW_SPECIAL_CHARS;   /* 허용 특수문자 목록 */
-    int i;
-
-    for (i = 0; specials[i] != '\0'; i++) {
-        if (specials[i] == ch)
-            return true;
-    }
-    return false;
+    return ch != '\0' && strchr(PW_SPECIAL_CHARS, ch) != NULL;
 }
 
 /*
