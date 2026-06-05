@@ -1,0 +1,5 @@
+# 컴파일 산출물
+*.o
+*.out
+password_validation
+pw_asan
