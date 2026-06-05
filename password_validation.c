@@ -177,7 +177,15 @@ static const char *result_reason(int code)
 /*
  * 패스워드를 한 글자씩 입력받아 화면에는 '*'로 마스킹하여 출력한다.
  * _getch()는 입력 문자를 에코 없이 즉시 읽어오므로 직접 '*'를 출력한다.
- * 백스페이스(지우기)도 지원한다.
+ *
+ * 입력 단계에서 다음과 같이 걸러낸다:
+ *   - 특수키(화살표·기능키·Home/End 등): _getch()가 0x00 또는 0xE0을 먼저
+ *     반환하고 다음 호출에서 스캔코드를 주므로, 두 바이트를 모두 읽어 버린다.
+ *   - 그 외 제어문자(Tab·Esc 등): 무시한다.
+ *   - 백스페이스: 마지막 글자를 지운다.
+ *   - 출력 가능한 문자만 버퍼에 저장한다.
+ *     (저장된 문자가 유효한지/허용되는지는 verification_pw가 판정한다.)
+ *
  *   buf : 입력을 저장할 버퍼
  *   cap : 버퍼 용량(널 문자 포함)
  *   반환: 입력된 문자열의 길이.
@@ -187,20 +195,33 @@ static int read_password(char buf[], int cap)
     int len = 0;
     int ch;
 
-    while ((ch = _getch()) != '\r' && ch != '\n' && ch != EOF) {
-        if (ch == '\b') {                       /* Backspace */
+    for (;;) {
+        ch = _getch();
+
+        if (ch == '\r' || ch == '\n' || ch == EOF)  /* 입력 종료 */
+            break;
+
+        if (ch == 0x00 || ch == 0xE0) {     /* 특수키: 2바이트 시퀀스 전체를 버린다 */
+            _getch();                        /* 뒤따르는 스캔코드까지 읽어서 무시 */
+            continue;
+        }
+
+        if (ch == '\b') {                    /* 백스페이스 */
             if (len > 0) {
                 len--;
-                fputs("\b \b", stdout);         /* 화면의 '*' 한 칸 지우기 */
+                fputs("\b \b", stdout);      /* 화면의 '*' 한 칸 지우기 */
             }
             continue;
         }
 
-        if (len < cap - 1) {                     /* 버퍼 한도 내에서만 저장 */
+        if (!isprint((unsigned char)ch))     /* 그 외 제어문자(Tab·Esc 등): 무시 */
+            continue;
+
+        if (len < cap - 1) {                 /* 출력 가능한 문자만 저장 + 마스킹 */
             buf[len++] = (char)ch;
             putchar('*');
         }
-        /* 한도를 넘는 입력은 무시하여 오버플로우를 방지한다. */
+        /* 버퍼 한도를 넘는 입력은 무시하여 오버플로우를 방지한다. */
     }
 
     buf[len] = '\0';
