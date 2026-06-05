@@ -31,6 +31,9 @@
 #define PW_MIN_LEN   8      /* 허용 최소 길이 */
 #define PW_MAX_LEN   20     /* 허용 최대 길이 */
 
+/* 허용 특수문자 집합. 규칙이 바뀌면 이 한 곳만 수정하면 된다. */
+#define PW_SPECIAL_CHARS "!@#$"
+
 /*
  * 입력 버퍼는 최대 길이(20)보다 넉넉하게 잡는다.
  * 이렇게 해야 "20자리 초과" 같은 무효 케이스도 실제로 입력하여 검사할 수 있고,
@@ -65,11 +68,19 @@ static bool        ask_continue(void);
 /* ---- 유효성 검사 (핵심 로직) ---------------------------------------------- */
 
 /*
- * 허용되는 특수문자(!, @, #, $) 여부를 판정한다.
+ * 허용되는 특수문자 여부를 판정한다.
+ * 검사 대상 특수문자는 PW_SPECIAL_CHARS 배열을 순회하며 비교한다.
  */
 static bool is_special_char(int ch)
 {
-    return (ch == '!' || ch == '@' || ch == '#' || ch == '$');
+    const char specials[] = PW_SPECIAL_CHARS;   /* 허용 특수문자 목록 */
+    int i;
+
+    for (i = 0; specials[i] != '\0'; i++) {
+        if (specials[i] == ch)
+            return true;
+    }
+    return false;
 }
 
 /*
