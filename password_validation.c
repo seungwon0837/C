@@ -35,13 +35,6 @@
 /* 허용 특수문자 집합. 규칙이 바뀌면 이 한 곳만 수정하면 된다. */
 #define PW_SPECIAL_CHARS "!@#$"
 
-/*
- * 입력 버퍼는 최대 길이(20)보다 넉넉하게 잡는다.
- * 이렇게 해야 "20자리 초과" 같은 무효 케이스도 실제로 입력하여 검사할 수 있고,
- * 버퍼 오버플로우도 방어할 수 있다.
- */
-#define PW_BUF_SIZE  64
-
 /* verification_pw()의 반환값(유효성 검사 결과 코드) */
 enum pw_result {
     PW_VALID = 0,           /* 유효 */
@@ -117,7 +110,7 @@ int verification_pw(char pw[], int size)
     /* 조건 2) 길이 검사 */
     if (size < PW_MIN_LEN)
         return PW_ERR_TOO_SHORT;
-    if (size > PW_MAX_LEN)
+    if (size > PW_MAX_LEN)          /* 입력은 버퍼에서 잘리므로 직접 호출 대비 방어용 */
         return PW_ERR_TOO_LONG;
 
     /* 조건 1) 허용 문자 검사 + 조건 3) 문자 종류별 포함 여부 집계 */
@@ -267,7 +260,7 @@ static bool ask_continue(void)
 
 int main(void)
 {
-    char pw[PW_BUF_SIZE];
+    char pw[PW_MAX_LEN + 1];  /* 유효 최대 길이 + 널 종료문자 */
     int  count = 0;          /* 총 검사 횟수 */
     int  valid_count = 0;    /* 유효 판정 횟수 */
     int  len, result;
@@ -278,7 +271,7 @@ int main(void)
         count++;
         printf("%d. 검사할 패스워드를 입력하시오 : ", count);
 
-        len = read_password(pw, PW_BUF_SIZE);
+        len = read_password(pw, (int)sizeof pw);
         result = verification_pw(pw, len);
 
         if (result == PW_VALID) {
